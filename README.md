@@ -10,6 +10,4 @@ Currently written in vbscript, eventually we will re-write in powershell. Montio
 1 - Not up to date - Real time scanning running (warning)
 2 - Bitdefender or Real time scanning not running (critical)
 3 - Not installed (critical)
-4 - Reserved: Other AV running (error)
-5 - Reserved: Could not authenticate download (error)
 6 - Could not run script - error determining version or could not download```

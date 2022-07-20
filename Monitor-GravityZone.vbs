@@ -1,19 +1,28 @@
 ' Bitdefender GravityZone Monitoring Script by David Beaumont
 ' Specialised Assistance School for Youth
-' v0.1 5 Dec 2021
+' v0.2 22 Jan 2022
 ' Adapted from part of AVStatus.vbs by Chris Reid 
+
+' Changes:
+' Added functions to clean up code
+' Changed script so it doesn't download latest.dat every run, only if eps.rmm.exe is not present
+' Changed exit code functionality
+' Cleaned up console output to be more clear
+' Added exit for real time scanning not running but bitdefender is.
 
 ' Return codes:
 ' 0 - Up to date - Real time scanning running (good)
 ' 1 - Not up to date - Real time scanning running (warning)
 ' 2 - Bitdefender or Real time scanning not running (critical)
 ' 3 - Not installed (critical)
-' 4 - Reserved for future enhancement: Other AV running (error)
-' 5 - Reserved for future enhancement: Could not authenticate download (error)
+' 4 - Reserved: Other AV running (error)
+' 5 - Reserved: Could not authenticate download (error)
 ' 6 - Could not run script - error determining version or could not download
 
 ' Define folder for download, do not add a trailing \
 ' WScript.CreateObject("Scripting.FileSystemObject").GetSpecialFolder(2) is temp folder (0 is windows, 1 is system, 2 is temp)
+ON ERROR RESUME NEXT
+
 RMMfolder = WScript.CreateObject("Scripting.FileSystemObject").GetSpecialFolder(2)
 
 ' Todo: If not installed, check if there is a running AV and if up to date
@@ -25,6 +34,9 @@ Set output = Wscript.stdout
 ' WinHttp object for downloads
 Set objXMLHTTP = CreateObject("WinHttp.WinHttpRequest.5.1") 
 
+' Universal objFSO
+Set objFSO = CreateObject("Scripting.FileSystemObject")
+
 ' Function to easily download a file to a location, overwriting if already existing
 Function DownloadFile(strFileURL, strHDLocation)
 
@@ -35,8 +47,7 @@ Function DownloadFile(strFileURL, strHDLocation)
     ' Sourced from: https://serverfault.com/questions/29707/download-file-from-vbscript
     ' Fetch the file
     
-    output.writeline "- Will attempt to download the following file: " & strFileURL
-	output.writeline "- To the following file name: " & strFileName
+    output.writeline "- Downloading: " & strFileURL & " Saving as: " & strFileName
     output.writeline "- The file will be stored at the following path: " & strHDLocation
     Set objXMLHTTP = CreateObject("WinHttp.WinHttpRequest.5.1")
 	objXMLHTTP.open "GET", strFileURL, false
@@ -70,40 +81,53 @@ Function DownloadFile(strFileURL, strHDLocation)
 
 End Function
 
-' Universal objFSO
-Set objFSO = CreateObject("Scripting.FileSystemObject")
+Function ExitWithCode(exitcode)
+	err.clear
+	Wscript.quit(exitcode)
+End Function
 
-' Get current RMM SDK version from http://download.bitdefender.com/SMB/RMM/Tools/Win/latest.dat
-if DownloadFile("http://download.bitdefender.com/SMB/RMM/Tools/Win/latest.dat", RMMfolder & "\") = True then
-	Set objFSO = CreateObject("Scripting.FileSystemObject")
+Function DownloadEPSRMM
+	' Get current RMM SDK version from http://download.bitdefender.com/SMB/RMM/Tools/Win/latest.dat
+	output.writeline "- Downloading eps.rmm.exe from Bitdefender"
+	output.writeline "- Downloading latest.dat to determine eps.rmm.exe URL"
+	if DownloadFile("http://download.bitdefender.com/SMB/RMM/Tools/Win/latest.dat", RMMfolder & "\") = True then
+		Set objFSO = CreateObject("Scripting.FileSystemObject")
 
-	Set file = objFSO.OpenTextFile(RMMfolder & "\latest.dat")
-	epsrmmver = file.ReadLine()
+		Set file = objFSO.OpenTextFile(RMMfolder & "\latest.dat")
+		epsrmmver = file.ReadLine()
 
-	output.writeline "- Current RMM SDK version: " & epsrmmver
-	
-	'Set download URL
-	epsrmmdownload = "http://download.bitdefender.com/SMB/RMM/Tools/Win/" & epsrmmver & "/x64/eps.rmm.exe"
-	output.writeline "- Download URL if required: " & epsrmmdownload
-	
-Else ' File was not downloaded
-	output.writeline "Current RMM SDK version could not be determined."
-	'if an existing version exists, use that. Otherwise exit
-	if objFSO.FileExists(RMMfolder & "\eps.rmm.exe") then
-		output.writeline "Using existing download in " & RMMfolder
-	Else
-		output.writeline "No existing download, exiting."
-		Wscript.quit(6)
-	End If
-End if
+		output.writeline "- Current RMM SDK version: " & epsrmmver
+		
+		'Set download URL
+		epsrmmdownload = "http://download.bitdefender.com/SMB/RMM/Tools/Win/" & epsrmmver & "/x64/eps.rmm.exe"
+		output.writeline "- eps.rmm.exe URL: " & epsrmmdownload
 
+		If DownloadFile(epsrmmdownload, RMMfolder & "\") = True Then
+			DownloadFile = true
+			'TODO: Check signature of download to prevent tampering
+			'((Get-AuthenticodeSignature %1).Status) -eq 'Valid'
+			'Read subject and compare to known good subject eg: CN = Bitdefender SRL OU = OU = DEVSUP EPSINTEGRATION O = Bitdefender SRL L = Bucharest C = RO
+
+		Else
+			output.writeline "- The Bitdefender RMM SDK is not present on this device, and could not be downloaded."
+			output.writeline "- Please download the Bitdefender RMM SDK from http://download.bitdefender.com/SMB/RMM/Tools/Win/ and place it in the RMMfolder folder."
+			output.writeline "- Exiting the script."
+			ExitWithCode(6)
+		End If
+		
+	Else ' File was not downloaded
+		output.writeline "Current RMM SDK version could not be determined."
+		ExitWithCode(6)
+	End if
+
+End Function
 
 ' Let's see if the eps.rmm.exe file is in RMMfolder
 If objFSO.FileExists(RMMfolder & "\eps.rmm.exe") Then
-	output.writeline "- The Bitdefender RMM SDK is present on this device."
+	output.writeline "- The Bitdefender RMM SDK is present on this device. at " & RMMfolder & "\eps.rmm.exe"
 	'TODO: determine if version is current or not, only check once a day - https://stackoverflow.com/questions/2976734/how-to-retrieve-a-files-product-version-in-vbscript
-ElseIf DownloadFile(epsrmmdownload, RMMfolder & "\") = True Then
-	output.writeline "- The eps.rmm.exe file was not found in RMMfolder, but it's been successfully downloaded."
+ElseIf DownloadEPSRMM = True Then
+	output.writeline "- eps.rmm.exe file has been successfully downloaded."
 	'TODO: Check signature of download to prevent tampering
 	'((Get-AuthenticodeSignature %1).Status) -eq 'Valid'
 	'Read subject and compare to known good subject eg: CN = Bitdefender SRL OU = OU = DEVSUP EPSINTEGRATION O = Bitdefender SRL L = Bucharest C = RO
@@ -111,8 +135,8 @@ ElseIf DownloadFile(epsrmmdownload, RMMfolder & "\") = True Then
 Else
 	output.writeline "- The Bitdefender RMM SDK is not present on this device, and could not be downloaded."
 	output.writeline "- Please download the Bitdefender RMM SDK from http://download.bitdefender.com/SMB/RMM/Tools/Win/ and place it in the RMMfolder folder."
-	output.writeline "- Exiting the script."
-	Wscript.quit(6)
+	output.writeline "- Exiting the script with return code 6."
+	ExitWithCode(6)
 End If
 
 
@@ -125,6 +149,7 @@ sLine = oExec.StdOut.ReadLine
 if left(sLine,2) = "0|" Then
 	'Not installed
 	output.writeline "- Bitdefender GravityZone not installed. String returned from eps.rmm.exe -detect is: " & sLine
+	output.writeline "- Exiting the script with return code 3."
 	Wscript.quit(3)
 Elseif left(sLine,2) = "1|" Then
 	'Installed and running
@@ -134,10 +159,12 @@ Elseif left(sLine,2) = "1|" Then
 Elseif left (sLine,2) = "2|" Then
 	'installed and not running
 	output.writeline "- Bitdefender GravityZone installed but not running. String returned from eps.rmm.exe -detect is: " & sLine
+	output.writeline "- Exiting the script with return code 2."
 	Wscript.quit(2)
 Else
 	'Could not be determined
 	output.writeline "Status not detected. String returned from eps.rmm.exe -detect is: " & sLine
+	output.writeline "- Exiting the script with return code 6."
 	Wscript.quit(6)
 End if
 
@@ -158,8 +185,8 @@ output.writeline "- The version of Bitdefender running on this machine is: " & F
 Set oExec = WshShell.Exec(RMMfolder & "\eps.rmm.exe -isUpToDate")
 sLine = oExec.StdOut.ReadLine
 
+output.writeline "- Checking if Up-To-Date. Return values: 1 = Up-To-Date; 0 = not Up-To-Date."
 output.writeline "- Returned value: " & sLine
-output.writeline "- If 1, then Up-To-Date; if 0, BEST is not up-to-date."
 		   
 If sLine="1" Then
 	ProductUpToDate = True
@@ -184,7 +211,12 @@ output.writeline "- Is Real Time Scanning Enabled? " & OnAccessScanningEnabled
 	
 ' Return status:
 If ProductUpToDate and OnAccessScanningEnabled then
-	Wscript.quit(0)
+	output.writeline "- Exiting the script with return code 0. AV Up-To-Date and running."
+	ExitWithCode(0)
 elseif (not ProductUpToDate) and OnAccessScanningEnabled then
+	output.writeline "- Exiting the script with return code 1. AV not Up-To-Date."
 	Wscript.quit(1)
+elseif (not OnAccessScanningEnabled) then
+	output.writeline "- Exiting the script with return code 2. Real time scanning not running."
+	Wscript.quit(2)
 end if

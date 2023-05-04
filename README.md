@@ -27,3 +27,24 @@ The limitation in the built in monitoring of Bitlocker in Ninja is that it isn't
 5 - Drive not ready to be encrypted
 6 - TPM not ready
 ```
+
+## Monitor-Windows-License-Status.ps1 - Monitoring Windows License status
+
+Occasional a windows machine will not activate, or the OEM key will not be injected by the reseller, or something. This script can report the status of windows license. If the status can't be determined, it returns 7 plus the embedded OEM key if present. (OA3XOriginalProductKey)
+
+Output:
+```
+0=Unlicensed
+1=Licensed
+2=OOBGrace
+3=OOTGrace
+4=NonGenuineGrace
+5=Notification
+If 5=Notification is returned, an additional check if the cause is VOLUME_KMSCLIENT activation type
+6=ExtendedGrace
+7=OEMkey-[key]
+```
+
+## Install-FSLogix-Apps.ps1 - Downloads and installs FSLogix Apps
+
+Checks if installed, and compares the currently installed version number to the version downloaded from Microsoft's short link: https://aka.ms/fslogix/download
